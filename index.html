@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shibaseinu — SHIBASE</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#fff;color:#111;min-height:100vh}
+header{background:#0052FF;padding:20px 24px}
+header h1{color:#fff;font-size:24px;font-weight:800;letter-spacing:-0.5px}
+header p{color:rgba(255,255,255,0.7);font-size:13px;margin-top:2px}
+.hero{text-align:center;padding:40px 20px 20px}
+.hero h2{font-size:32px;font-weight:800;color:#0052FF;line-height:1.2}
+.hero p{font-size:15px;color:#555;margin-top:10px;max-width:400px;margin-left:auto;margin-right:auto}
+.warning{background:#fffbe6;border:1px solid #f0a500;border-left:4px solid #f0a500;border-radius:8px;padding:14px 18px;margin:20px 16px;font-size:13px;line-height:1.7}
+.warning strong{display:block;font-size:14px;margin-bottom:4px;color:#b07800}
+.stats{display:flex;gap:12px;max-width:600px;margin:20px auto;padding:0 16px}
+.stat{flex:1;background:#f4f7ff;border:1px solid #d0deff;border-radius:10px;padding:16px;text-align:center}
+.stat .label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+.stat .value{font-size:20px;font-weight:800;color:#0052FF}
+.card{max-width:600px;margin:20px auto;padding:0 16px 40px}
+.card-inner{border:1px solid #e5eeff;border-radius:14px;padding:24px}
+.card h3{font-size:16px;font-weight:700;color:#0052FF;margin-bottom:4px}
+.card p{font-size:13px;color:#666;margin-bottom:20px}
+.btn{width:100%;padding:15px;border-radius:10px;border:none;font-size:16px;font-weight:700;cursor:pointer;transition:opacity 0.2s}
+.btn:hover{opacity:0.85}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+.btn-blue{background:#0052FF;color:#fff}
+.status{margin-top:14px;font-size:13px;text-align:center;min-height:18px;word-break:break-all}
+.status.err{color:#c00}
+.status.ok{color:#080}
+.links{max-width:600px;margin:0 auto;padding:0 16px 40px;font-size:12px;color:#999;line-height:2}
+.links a{color:#0052FF;text-decoration:none}
+.links a:hover{text-decoration:underline}
+@media(max-width:480px){.stats{flex-direction:column}.hero h2{font-size:26px}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SHIBASEINU</h1>
+  <p>SHIBASE · Built on Base</p>
+</header>
+
+<div class="hero">
+  <h2>First come.<br>First served.<br>No mercy.</h2>
+  <p>No whitelist. No presale. No VCs. Just show up early and claim your bag.</p>
+</div>
+
+<div class="warning">
+  <strong>⚠️ Security Notice — Read Before Claiming</strong>
+  This is FCFS — anyone can claim as many times as they want while the pool lasts.
+  For your security, <strong>use a new wallet</strong> you have never used before.
+  Fund it with at least <strong>$0.20 worth of ETH on Base</strong> to cover the claim fee + gas.
+  Do not claim from your main wallet.
+</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">Remaining Claims</div>
+    <div class="value" id="remaining">—</div>
+  </div>
+  <div class="stat">
+    <div class="label">Liquidity Fund (ETH)</div>
+    <div class="value" id="ethBal">—</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-inner">
+    <h3>Claim Shibaseinu</h3>
+    <p>200,000 SHIBASE per claim · Fee ≈ $0.10 ETH · No wallet limit</p>
+    <button class="btn btn-blue" id="mainBtn" onclick="handleBtn()">Connect Wallet</button>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+
+<div class="links">
+  Token: <a href="https://basescan.org/address/0xfB709AD90265450c0317bddE3160d9380Bf7AFE7" target="_blank">0xfB709AD90265450c0317bddE3160d9380Bf7AFE7</a><br>
+  Claim: <a href="https://basescan.org/address/0x8C92CA31Ce7e5caE16711C09305f56Dc3A56b697" target="_blank">0x8C92CA31Ce7e5caE16711C09305f56Dc3A56b697</a>
+</div>
+
+<script>
+const CLAIM='0x8C92CA31Ce7e5caE16711C09305f56Dc3A56b697';
+const ABI=[
+  'function claim() external payable',
+  'function remainingClaims() external view returns (uint256)',
+  'function FEE() external view returns (uint256)'
+];
+const BASE_ID='0x2105';
+let provider,signer,connected=false;
+
+async function loadStats(){
+  try{
+    const p=new ethers.JsonRpcProvider('https://mainnet.base.org');
+    const c=new ethers.Contract(CLAIM,ABI,p);
+    const [rem,bal]=await Promise.all([c.remainingClaims(),p.getBalance(CLAIM)]);
+    document.getElementById('remaining').textContent=Number(rem).toLocaleString();
+    document.getElementById('ethBal').textContent=parseFloat(ethers.formatEther(bal)).toFixed(6)+' ETH';
+  }catch(e){console.error(e)}
+}
+
+async function handleBtn(){
+  if(!connected)await connectWallet();
+  else await doClaim();
+}
+
+async function connectWallet(){
+  if(!window.ethereum){setStatus('No wallet found. Use MetaMask or a Web3 browser.','err');return}
+  try{
+    provider=new ethers.BrowserProvider(window.ethereum);
+    await provider.send('eth_requestAccounts',[]);
+    const cid=await provider.send('eth_chainId',[]);
+    if(cid!==BASE_ID){
+      try{await provider.send('wallet_switchEthereumChain',[{chainId:BASE_ID}])}
+      catch(e){await provider.send('wallet_addEthereumChain',[{chainId:BASE_ID,chainName:'Base',rpcUrls:['https://mainnet.base.org'],nativeCurrency:{name:'ETH',symbol:'ETH',decimals:18},blockExplorerUrls:['https://basescan.org']}])}
+      provider=new ethers.BrowserProvider(window.ethereum);
+    }
+    signer=await provider.getSigner();
+    const addr=await signer.getAddress();
+    connected=true;
+    document.getElementById('mainBtn').textContent='Claim 200,000 SHIBASE';
+    setStatus('Connected: '+addr.slice(0,6)+'...'+addr.slice(-4));
+  }catch(e){setStatus('Failed: '+(e.message||e),'err')}
+}
+
+async function doClaim(){
+  const btn=document.getElementById('mainBtn');
+  btn.disabled=true;
+  btn.textContent='Claiming...';
+  setStatus('Sending transaction...');
+  try{
+    const c=new ethers.Contract(CLAIM,ABI,signer);
+    const fee=await c.FEE();
+    const tx=await c.claim({value:fee});
+    setStatus('Pending: '+tx.hash.slice(0,10)+'...');
+    await tx.wait();
+    setStatus('✅ Done! 200,000 SHIBASE sent to your wallet.','ok');
+    loadStats();
+  }catch(e){
+    setStatus('❌ '+(e?.reason||e?.shortMessage||e?.message||'Unknown error'),'err');
+  }
+  btn.disabled=false;
+  btn.textContent='Claim 200,000 SHIBASE';
+}
+
+function setStatus(msg,cls=''){
+  const el=document.getElementById('status');
+  el.textContent=msg;
+  el.className='status '+cls;
+}
+
+loadStats();
+setInterval(loadStats,15000);
+</script>
+</body>
+</html>
